@@ -30,7 +30,7 @@ using namespace std;
 #define EXTRA_COLLISION_SIZE 128
 
 // Number of blocks
-#define THREAD_BLOCKS 512
+#define THREAD_BLOCKS 128
 
 // Number of threads per block
 #define THREAD_COUNT 1024
@@ -83,12 +83,38 @@ void GetDbscanResult(double *d_dataset, int *d_cluster, int *runningCluster,
 
 __global__ void DBSCAN(double *dataset, int *cluster, int *seedList,
                        int *seedLength, int *collisionMatrix,
-                       int *extraCollision);
+                       int *extraCollision, int *neighborsPoints, int * maxSize);
 
 __device__ void MarkAsCandidate(int neighborID, int chainID, int *cluster,
                                 int *seedList, int *seedLength,
 
                                 int *collisionMatrix, int *extraCollision);
+
+namespace DynaMap {
+
+struct kdNode {
+  int id;
+  double x[DIMENSION];
+  struct kdNode *left, *right;
+};
+
+class kdTree {
+ public:
+  kdTree();
+
+  virtual ~kdTree();
+
+  double dist(struct kdNode *a, struct kdNode *b);
+  void swap(struct kdNode *x, struct kdNode *y);
+  struct kdNode *findMedian(struct kdNode *start, struct kdNode *end, int idx);
+  struct kdNode *buildTree(struct kdNode *t, int len, int i);
+
+  vector<int> rangeSearch(struct kdNode *root,
+                                  double searchPoint[DIMENSION]);
+};
+}  // namespace DynaMap
+
+using namespace DynaMap;
 
 /**
 **************************************************************************
@@ -193,6 +219,27 @@ int main(int argc, char **argv) {
 
   /**
    **************************************************************************
+   * Build kd tree
+   **************************************************************************
+   */
+  struct kdNode *wp =
+      (struct kdNode *)malloc(sizeof(struct kdNode) * DATASET_COUNT);
+
+  for (int i = 0; i < DATASET_COUNT; i++) {
+    wp[i].id = i;
+    for (int j = 0; j < DIMENSION; j++) {
+      wp[i].x[j] = importedDataset[i * DIMENSION + j];
+    }
+  }
+
+  struct kdNode *root;
+
+  kdTree kd = kdTree();
+
+  root = kd.buildTree(wp, DATASET_COUNT, 0);
+
+  /**
+   **************************************************************************
    * Start the DBSCAN algorithm
    **************************************************************************
    */
@@ -209,6 +256,11 @@ int main(int argc, char **argv) {
   // Handler to conmtrol the while loop
   bool exit = false;
 
+  int *d_neighborsPoints;
+
+  int *d_maxSize;
+  gpuErrchk(cudaMalloc((void **)&d_maxSize, sizeof(int)));
+
   while (!exit) {
     // Monitor the seed list and return the comptetion status of points
     int completed = MonitorSeedPoints(unprocessedPoints, &runningCluster,
@@ -216,6 +268,7 @@ int main(int argc, char **argv) {
                                       d_collisionMatrix, d_extraCollision);
     printf("Running cluster %d, unprocessed points: %lu\n", runningCluster,
            unprocessedPoints.size());
+    
     // If all points are processed, exit
     if (completed) {
       exit = true;
@@ -223,11 +276,70 @@ int main(int argc, char **argv) {
 
     if (exit) break;
 
+    int *localSeedLength;
+    localSeedLength = (int *)malloc(sizeof(int) * THREAD_BLOCKS);
+    gpuErrchk(cudaMemcpy(localSeedLength, d_seedLength,
+                         sizeof(int) * THREAD_BLOCKS, cudaMemcpyDeviceToHost));
+
+    int *localSeedList;
+    localSeedList = (int *)malloc(sizeof(int) * THREAD_BLOCKS * MAX_SEEDS);
+    gpuErrchk(cudaMemcpy(localSeedList, d_seedList,
+                         sizeof(int) * THREAD_BLOCKS * MAX_SEEDS,
+                         cudaMemcpyDeviceToHost));
+
+    vector<vector<int>> pointsList(THREAD_BLOCKS, vector<int>());
+    for (int i = 0; i < THREAD_BLOCKS; i++) {
+      if (localSeedLength[i] == 0) continue;
+
+      int seedPointId = localSeedList[i * MAX_SEEDS + localSeedLength[i] - 1];
+      double searchPoint[DIMENSION];
+
+      for (int j = 0; j < DIMENSION; j++) {
+        searchPoint[j] = importedDataset[seedPointId * DIMENSION + j];
+      }
+      pointsList[i] = kd.rangeSearch(root, searchPoint);
+    }
+
+    int maxSize = 0;
+    for (int i = 0; i < pointsList.size(); i++) {
+      if (pointsList[i].size() > maxSize) {
+        maxSize = pointsList[i].size();
+      }
+    }
+    
+    gpuErrchk(
+        cudaMemcpy(d_maxSize, &maxSize, sizeof(int), cudaMemcpyHostToDevice));
+
+    int *h_neighborsPoints =
+        (int *)malloc(sizeof(int) * THREAD_BLOCKS * maxSize);
+
+    for (int i = 0; i < THREAD_BLOCKS; i++) {
+      for (int j = 0; j < maxSize; j++) {
+        if(j < pointsList[i].size()) {
+           h_neighborsPoints[i * maxSize + j] = pointsList[i][j];
+        } else {
+           h_neighborsPoints[i * maxSize + j] = -1;
+        }
+       
+      }
+    }
+
+    gpuErrchk(cudaMalloc((void **)&d_neighborsPoints,
+                         sizeof(int) * THREAD_BLOCKS * maxSize));
+
+    gpuErrchk(cudaMemcpy(d_neighborsPoints, h_neighborsPoints,
+                         sizeof(int) * THREAD_BLOCKS * maxSize,
+                         cudaMemcpyHostToDevice));
+
+    free(localSeedList);
+    free(localSeedLength);
+    free(h_neighborsPoints);
+
     // Kernel function to expand the seed list
     gpuErrchk(cudaDeviceSynchronize());
     DBSCAN<<<dim3(THREAD_BLOCKS, 1), dim3(THREAD_COUNT, 1)>>>(
         d_dataset, d_cluster, d_seedList, d_seedLength, d_collisionMatrix,
-        d_extraCollision);
+        d_extraCollision, d_neighborsPoints, d_maxSize);
     gpuErrchk(cudaDeviceSynchronize());
   }
 
@@ -257,6 +369,7 @@ int main(int argc, char **argv) {
   cudaFree(d_seedLength);
   cudaFree(d_collisionMatrix);
   cudaFree(d_extraCollision);
+  cudaFree(d_neighborsPoints);
 }
 
 /**
@@ -637,7 +750,7 @@ void GetDbscanResult(double *d_dataset, int *d_cluster, int *runningCluster,
 */
 __global__ void DBSCAN(double *dataset, int *cluster, int *seedList,
                        int *seedLength, int *collisionMatrix,
-                       int *extraCollision) {
+                       int *extraCollision, int *neighborsPoints, int * maxSize) {
   /**
    **************************************************************************
    * Define shared variables
@@ -696,10 +809,14 @@ __global__ void DBSCAN(double *dataset, int *cluster, int *seedList,
    * Keep record of left over neighbors in neighborBuffer
    **************************************************************************
    */
-  for (int i = threadIdx.x; i < DATASET_COUNT; i = i + THREAD_COUNT) {
+
+  for (int i = threadIdx.x; i < (*maxSize); i = i + THREAD_COUNT) {
+    int nearestPoint = neighborsPoints[chainID * (*maxSize) + i];
+    if (nearestPoint == -1) break;
+
     register double comparingPoint[DIMENSION];
     for (int x = 0; x < DIMENSION; x++) {
-      comparingPoint[x] = dataset[i * DIMENSION + x];
+      comparingPoint[x] = dataset[nearestPoint * DIMENSION + x];
     }
 
     // find the distance between the points
@@ -713,10 +830,10 @@ __global__ void DBSCAN(double *dataset, int *cluster, int *seedList,
     if (distance <= EPS * EPS) {
       register int currentNeighborCount = atomicAdd(&neighborCount, 1);
       if (currentNeighborCount >= MINPTS) {
-        MarkAsCandidate(i, chainID, cluster, seedList, seedLength,
+        MarkAsCandidate(nearestPoint, chainID, cluster, seedList, seedLength,
                         collisionMatrix, extraCollision);
       } else {
-        neighborBuffer[currentNeighborCount] = i;
+        neighborBuffer[currentNeighborCount] = nearestPoint;
       }
     }
   }
@@ -871,4 +988,109 @@ int ImportDataset(char const *fname, double *dataset) {
   }
   fclose(fp);
   return 0;
+}
+
+namespace DynaMap {
+kdTree::kdTree() {}
+kdTree::~kdTree() {}
+
+double kdTree::dist(struct kdNode *a, struct kdNode *b) {
+  double t, d = 0;
+  int dim = DIMENSION;
+  while (dim--) {
+    t = a->x[dim] - b->x[dim];
+    d += t * t;
+  }
+  return d;
+}
+
+void kdTree::swap(struct kdNode *x, struct kdNode *y) {
+  double tmp[DIMENSION];
+  int id;
+  memcpy(tmp, x->x, sizeof(tmp));
+  id = x->id;
+
+  memcpy(x->x, y->x, sizeof(tmp));
+  x->id = y->id;
+
+  memcpy(y->x, tmp, sizeof(tmp));
+  y->id = id;
+}
+struct kdNode *kdTree::findMedian(struct kdNode *start, struct kdNode *end,
+                                  int idx) {
+  if (end <= start) return NULL;
+  if (end == start + 1) return start;
+
+  struct kdNode *p, *store, *md = start + (end - start) / 2;
+  double pivot;
+  while (1) {
+    pivot = md->x[idx];
+
+    swap(md, end - 1);
+    for (store = p = start; p < end; p++) {
+      if (p->x[idx] < pivot) {
+        if (p != store) swap(p, store);
+        store++;
+      }
+    }
+    swap(store, end - 1);
+
+    /* median has duplicate values */
+    if (store->x[idx] == md->x[idx]) return md;
+
+    if (store > md)
+      end = store;
+    else
+      start = store;
+  }
+}
+
+struct kdNode *kdTree::buildTree(struct kdNode *t, int len, int i) {
+  struct kdNode *n;
+
+  if (!len) return 0;
+
+  if ((n = findMedian(t, t + len, i))) {
+    i = (i + 1) % DIMENSION;
+    n->left = buildTree(t, n - t, i);
+    n->right = buildTree(n + 1, t + len - (n + 1), i);
+  }
+  return n;
+}
+
+vector<int> kdTree::rangeSearch(struct kdNode *root,
+                                double searchPoint[DIMENSION]) {
+  double upperPoint[DIMENSION];
+
+  double lowerPoint[DIMENSION];
+
+  for (int i = 0; i < DIMENSION; i++) {
+    upperPoint[i] = searchPoint[i] + EPS;
+    lowerPoint[i] = searchPoint[i] - EPS;
+  }
+
+  vector<kdNode *> s = {};
+  kdNode *curr = root;
+
+  vector<int> points = {};
+
+  while (curr != NULL || s.empty() == false) {
+    while (curr != NULL) {
+      s.push_back(curr);
+      curr = curr->left;
+    }
+
+    curr = s.back();
+    s.pop_back();
+
+    if (curr->x[0] >= lowerPoint[0] && curr->x[0] <= upperPoint[0] &&
+        curr->x[1] >= lowerPoint[1] && curr->x[1] <= upperPoint[1]) {
+      points.push_back(curr->id);
+    }
+    curr = curr->right;
+  }
+
+  return points;
+}
+
 }

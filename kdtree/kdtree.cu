@@ -1,50 +1,21 @@
 #include "kdtree.h"
 
 namespace DynaMap {
-__device__ __host__ kdTree::kdTree() {}
-__device__ __host__ kdTree::~kdTree() {}
-void kdTree::init(int querySize) {
-  visited = 0;
-  cudaMallocManaged(&kdDistnaces, sizeof(float));
-  cudaMallocManaged(&kdFound, sizeof(struct kdNode));
-  cudaMallocManaged(&kdRoot, sizeof(struct kdNode) * NODE_NUM);
-  cudaMallocManaged(&kdQuery, sizeof(struct kdNode) * NODE_NUM);
-  cudaMallocManaged(&VisitedNodes, sizeof(struct kdNode) * NODE_NUM);
-  cudaDeviceSynchronize();
-}
+kdTree::kdTree() {}
+kdTree::~kdTree() {}
 
-void kdTree::Free(void) {
-  cudaDeviceSynchronize();
-  cudaFree(kdDistnaces);
-  cudaFree(kdFound);
-  cudaFree(kdRoot);
-  cudaFree(kdQuery);
-  cudaFree(VisitedNodes);
-}
-__device__ __host__ inline float kdTree::dist(struct kdNode *a,
-                                              struct kdNode *b, int dim) {
-  float t, d = 0;
+double kdTree::dist(struct kdNode *a, struct kdNode *b) {
+  double t, d = 0;
+  int dim = DIMENSION;
   while (dim--) {
     t = a->x[dim] - b->x[dim];
     d += t * t;
   }
   return d;
 }
-inline void kdTree::swap(struct kdNode *x, struct kdNode *y) {
-#if defined(__CUDA_ARCH__)
-  struct kdNode *tmp;
-  cudaMallocManaged(&tmp, sizeof(struct kdNode));
 
-  cudaMemcpy(tmp, x, sizeof(struct kdNode), cudaMemcpyDeviceToDevice);
-  cudaDeviceSynchronize();
-
-  cudaMemcpy(x, y, sizeof(struct kdNode), cudaMemcpyDeviceToDevice);
-  cudaDeviceSynchronize();
-
-  cudaMemcpy(y, tmp, sizeof(struct kdNode), cudaMemcpyDeviceToDevice);
-  cudaDeviceSynchronize();
-#else
-  float tmp[MAX_DIM];
+void kdTree::swap(struct kdNode *x, struct kdNode *y) {
+  double tmp[DIMENSION];
   int id;
   memcpy(tmp, x->x, sizeof(tmp));
   id = x->id;
@@ -54,7 +25,6 @@ inline void kdTree::swap(struct kdNode *x, struct kdNode *y) {
 
   memcpy(y->x, tmp, sizeof(tmp));
   y->id = id;
-#endif
 }
 struct kdNode *kdTree::findMedian(struct kdNode *start, struct kdNode *end,
                                   int idx) {
@@ -62,7 +32,7 @@ struct kdNode *kdTree::findMedian(struct kdNode *start, struct kdNode *end,
   if (end == start + 1) return start;
 
   struct kdNode *p, *store, *md = start + (end - start) / 2;
-  float pivot;
+  double pivot;
   while (1) {
     pivot = md->x[idx];
 
@@ -84,25 +54,35 @@ struct kdNode *kdTree::findMedian(struct kdNode *start, struct kdNode *end,
       start = store;
   }
 }
-struct kdNode *kdTree::buildTree(struct kdNode *t, int len, int i, int dim) {
+
+struct kdNode *kdTree::buildTree(struct kdNode *t, int len, int i) {
   struct kdNode *n;
 
   if (!len) return 0;
 
   if ((n = findMedian(t, t + len, i))) {
-    i = (i + 1) % dim;
-    n->left = buildTree(t, n - t, i, dim);
-    n->right = buildTree(n + 1, t + len - (n + 1), i, dim);
+    i = (i + 1) % DIMENSION;
+    n->left = buildTree(t, n - t, i);
+    n->right = buildTree(n + 1, t + len - (n + 1), i);
   }
   return n;
 }
 
-std::vector<int> kdTree::rangeSearch(struct kdNode *root, struct kdNode *rangeLower,
-                         struct kdNode *rangeUpper, int dim) {
+std::vector<int> kdTree::rangeSearch(struct kdNode *root,
+                                     double searchPoint[DIMENSION]) {
+  double upperPoint[DIMENSION] ;
+
+  double lowerPoint[DIMENSION];
+
+  for(int i = 0; i < DIMENSION; i++) {
+    upperPoint[i] = searchPoint[i] + EPS;
+    lowerPoint[i] = searchPoint[i] - EPS;
+  }
+
   std::vector<kdNode *> s;
   kdNode *curr = root;
 
-  std::vector<int> points;
+  std::vector<int> points = {};
 
   while (curr != NULL || s.empty() == false) {
     while (curr != NULL) {
@@ -110,15 +90,13 @@ std::vector<int> kdTree::rangeSearch(struct kdNode *root, struct kdNode *rangeLo
       curr = curr->left;
     }
 
-    curr = s.back(); 
+    curr = s.back();
     s.pop_back();
 
-     if (curr->x[0] >= rangeLower->x[0] && curr->x[0] <= rangeUpper->x[0] &&
-        curr->x[1] >= rangeLower->x[1] && curr->x[1] <= rangeUpper->x[1]) {
+    if (curr->x[0] >= lowerPoint[0] && curr->x[0] <= upperPoint[0] &&
+        curr->x[1] >= lowerPoint[1] && curr->x[1] <= upperPoint[1]) {
       points.push_back(curr->id);
     }
-
-
     curr = curr->right;
   }
 
@@ -128,35 +106,88 @@ std::vector<int> kdTree::rangeSearch(struct kdNode *root, struct kdNode *rangeLo
 }  // namespace DynaMap
 
 using namespace DynaMap;
-int main() {
-  
-  int data_size = 8;
 
-  struct kdNode *wp = (struct kdNode*)malloc(sizeof(struct kdNode) * data_size);
+int ImportDataset(char const *fname, double *dataset);
+int main(int argc, char **argv) {
+  char inputFname[500];
+  if (argc != 2) {
+    fprintf(stderr, "Please provide the dataset file path in the arguments\n");
+    exit(0);
+  }
 
-  wp[0] = {1, {2, 3}};
-  wp[1] = {2, {9, 6}};
-  wp[2] = {3, {4, 7}};
-  wp[3] = {4, {8, 1}};
-  wp[4] = {5, {7, 2}};
-  wp[5] = {6, {5, 6}};
-  wp[6] = {7, {5, 5}};
-  wp[7] = {8, {1, 5}};
+  // Get the dataset file name from argument
+  strcpy(inputFname, argv[1]);
+  printf("Using dataset file %s\n", inputFname);
+
+  double *importedDataset =
+      (double *)malloc(sizeof(double) * DATASET_COUNT * DIMENSION);
+
+  // Import data from dataset
+  int ret = ImportDataset(inputFname, importedDataset);
+  if (ret == 1) {
+    printf("\nError importing the dataset");
+    return 0;
+  }
+
+  // Check if the data parsed is correct
+  for (int i = 0; i < 4; i++) {
+    printf("Sample Data %f\n", importedDataset[i]);
+  }
+
+  struct kdNode *wp =
+      (struct kdNode *)malloc(sizeof(struct kdNode) * DATASET_COUNT);
+
+  for (int i = 0; i < DATASET_COUNT; i++) {
+    wp[i].id = i;
+    for (int j = 0; j < DIMENSION; j++) {
+      wp[i].x[j] = importedDataset[i * DIMENSION + j];
+    }
+  }
 
   struct kdNode *root;
 
-  struct kdNode rangeLower = {0, {7, 5}};
-  struct kdNode rangeUpper = {0, {10, 8}};
+  double searchPoint[DIMENSION] = { 32.735085, 248.574364};
 
   kdTree kd = kdTree();
 
-  root = kd.buildTree(wp, data_size, 0, 2);
+  root = kd.buildTree(wp, DATASET_COUNT, 0);
 
-  std::vector<int> points = kd.rangeSearch(root, &rangeLower, &rangeUpper, 2);
+  std::vector<int> points = kd.rangeSearch(root, searchPoint);
 
-  for(int i = 0; i < points.size(); i++) {
+  for (int i = 0; i < points.size(); i++) {
     printf("%d\n", points[i]);
   }
 
+  return 0;
+}
+
+int ImportDataset(char const *fname, double *dataset) {
+  FILE *fp = fopen(fname, "r");
+  if (!fp) {
+    printf("Unable to open file\n");
+    return (1);
+  }
+
+  char buf[4096];
+  unsigned long int cnt = 0;
+  while (fgets(buf, 4096, fp) && cnt < DATASET_COUNT * DIMENSION) {
+    char *field = strtok(buf, ",");
+    long double tmp;
+    sscanf(field, "%Lf", &tmp);
+    dataset[cnt] = tmp;
+    cnt++;
+
+    while (field) {
+      field = strtok(NULL, ",");
+
+      if (field != NULL) {
+        long double tmp;
+        sscanf(field, "%Lf", &tmp);
+        dataset[cnt] = tmp;
+        cnt++;
+      }
+    }
+  }
+  fclose(fp);
   return 0;
 }
