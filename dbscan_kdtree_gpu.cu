@@ -306,6 +306,8 @@ int main(int argc, char **argv) {
         maxSize = pointsList[i].size();
       }
     }
+
+    32 * 200
     
     gpuErrchk(
         cudaMemcpy(d_maxSize, &maxSize, sizeof(int), cudaMemcpyHostToDevice));
