@@ -1,13 +1,6 @@
-/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% by: Alireza Ahmadi                                     %
-% University of Bonn- MSc Robotics & Geodetic Engineering%
-% Alireza.Ahmadi@uni-bonn.de                             %
-% AlirezaAhmadi.xyz                                      %
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
-#pragma once
-
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <host_defines.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,30 +11,27 @@
 #include <vector>
 
 
-#define DATASET_COUNT 1000000
+#define DATASET_COUNT 10000
 #define DIMENSION 2
 #define EPS 1.5
 
-namespace DynaMap {
-
-struct kdNode {
+struct __align__(8) kdNode{
   int id;
   double x[DIMENSION];
-  struct kdNode *left, *right;
+  kdNode *left, *right;
 };
 
 class kdTree {
+private:
+  kdNode *kdRoot;
  public:
-  kdTree();
-
-  virtual ~kdTree();
-
-  double dist(struct kdNode *a, struct kdNode *b);
-  void swap(struct kdNode *x, struct kdNode *y);
-  struct kdNode *findMedian(struct kdNode *start, struct kdNode *end, int idx);
-  struct kdNode *buildTree(struct kdNode *t, int len, int i);
-
-  std::vector<int> kdTree::rangeSearch(struct kdNode *root,
+  __device__ __host__ kdTree();
+  __device__ __host__ virtual ~kdTree();
+  __device__ __host__ inline  double dist(kdNode *a, kdNode *b);
+  __device__ __host__ inline  void swap(kdNode *x, kdNode *y);
+  __device__ __host__ kdNode *findMedian(kdNode *start, kdNode *end, int idx);
+  kdNode *buildTree(kdNode *t, int len, int i);
+  __device__ __host__ kdNode getKdRoot();
+  std::vector<int> rangeSearch(kdNode *root,
                                        double searchPoint[DIMENSION]);
 };
-}  // namespace DynaMap
