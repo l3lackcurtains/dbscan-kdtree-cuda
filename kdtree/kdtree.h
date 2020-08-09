@@ -11,7 +11,7 @@
 #include <vector>
 
 
-#define DATASET_COUNT 10000
+#define DATASET_COUNT 100
 #define DIMENSION 2
 #define EPS 1.5
 
@@ -31,7 +31,11 @@ private:
   __device__ __host__ inline  void swap(kdNode *x, kdNode *y);
   __device__ __host__ kdNode *findMedian(kdNode *start, kdNode *end, int idx);
   kdNode *buildTree(kdNode *t, int len, int i);
+  kdNode *makeTree(kdNode *t, int len, int i);
   __device__ __host__ kdNode getKdRoot();
   std::vector<int> rangeSearch(kdNode *root,
                                        double searchPoint[DIMENSION]);
 };
+
+void inOrderNoRecursion(struct kdNode *curr);
+int ImportDataset(char const *fname, double *dataset);

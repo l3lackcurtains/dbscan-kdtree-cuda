@@ -55,37 +55,79 @@ struct kdNode *kdTree::findMedian(struct kdNode *start, struct kdNode *end,
     }
 }
 
+struct kdNode *kdTree::makeTree(struct kdNode *t, int len, int i) {
+    struct kdNode* n;
+    if (!len) return 0;
+    if ((n = findMedian(t, t + len, i))) {
+        i = (i + 1) % DIMENSION;
+        n->left = makeTree(t, n - t, i);
+        n->right = makeTree(n + 1, t + len - (n + 1), i);
+    }
+
+    return n;
+}
+
 struct kdNode *kdTree::buildTree(struct kdNode *t, int len, int i) {
-
-    // if (!len) return 0;
-
-    // if ((n = findMedian(t, t + len, i))) {
-    //   i = (i + 1) % DIMENSION;
-    //   n->left = buildTree(t, n - t, i);
-    //   n->right = buildTree(n + 1, t + len - (n + 1), i);
-    // }
-    // return n;
-    struct kdNode* x;
+    struct kdNode * x, * root;
     std::stack<kdNode *> s;
-    while (len) {
-        x = findMedian(t, t + len, i);
-        s.push(x);
-        struct kdNode* temp = NULL;
-        temp = s.top(), s.pop();
+
+    int start = 0;
+    int end = len;
+    int previous_start = start;
+    int previous_end = end;
+
+    x = findMedian(t +start, t + end, i);
+    int last_mid;;
+    root = x;
+
+    while (root != NULL) {
         
-        if (temp != NULL) {
-            i = (i + 1) % DIMENSION;
-            temp->left = x;
-            len = x - t;
-        } else {
-            i = (i + 1) % DIMENSION;
-            s.top()->right = x;
-            len = t + len - (x + 1);
-            t = x + 1;
+        
+        last_mid = x - t;
+        end = last_mid - previous_start;
+        start = previous_start;
+        i = (i + 1) % DIMENSION;
+
+        if (end >= start) {
+            x = findMedian(t + start, t +end, i);
+            root->left = x;
+            
+        }
+        else {
+            root->left = NULL;
         }
         
+        previous_start = start;
+        previous_end = end;
+        start = last_mid + 1;
+        end = previous_start + last_mid;
+
+        if (start<=end) {
+            root->right = x;
+            s.push(x);
+            s.push(t + start);
+            s.push(t + end);
+        } else {
+            break;
+        }
+
+        if (root->left != NULL) {
+            root = root->left;
+        }
+        else {
+            if (s.top() != NULL) {
+                previous_end = s.top() - t;
+                s.pop();
+            }
+            if (s.top() != NULL) {
+                previous_start = s.top() - t;
+                s.pop();
+            }
+            root= s.top();
+            s.pop();
+        }
     }
-    return x;
+    return root;
 }
 
 std::vector<int> kdTree::rangeSearch(struct kdNode *root,
@@ -123,7 +165,6 @@ std::vector<int> kdTree::rangeSearch(struct kdNode *root,
     return points;
 }
 
-int ImportDataset(char const *fname, double *dataset);
 int main(int argc, char **argv) {
     char inputFname[500];
     if (argc != 2) {
@@ -160,21 +201,48 @@ int main(int argc, char **argv) {
         }
     }
 
-    struct kdNode *root;
+    struct kdNode *root, *root2;
 
     double searchPoint[DIMENSION] ={ 131.229813, 43.925762 };
 
     kdTree kd = kdTree();
 
+    root2 = kd.makeTree(wp, DATASET_COUNT, 0);
+
+    inOrderNoRecursion(root2);
+
+    printf("=================================\n");
     root = kd.buildTree(wp, DATASET_COUNT, 0);
+    inOrderNoRecursion(root);
 
-    std::vector<int> points = kd.rangeSearch(root, searchPoint);
+    // std::vector<int> points = kd.rangeSearch(root, searchPoint);
 
-    for (int i = 0; i < points.size(); i++) {
-        printf("%d\n", points[i]);
-    }
+    // for (int i = 0; i < points.size(); i++) {
+    //     printf("%d\n", points[i]);
+    // }
 
     return 0;
+}
+
+void inOrderNoRecursion(struct kdNode *curr) {
+    std::stack<struct kdNode *> s;
+
+    while (true)
+    {
+        while (curr != NULL)
+        {
+            s.push(curr);
+            curr = curr->left;
+        }
+        if (s.size() == 0)
+            break;
+        curr = s.top();
+        s.pop();
+
+        printf("%d ", curr->id);
+        curr = curr->right;
+    }
+    printf("\n");
 }
 
 int ImportDataset(char const *fname, double *dataset) {
