@@ -101,20 +101,6 @@ void kdTree::insert(struct kdNode * t) {
     return;
 }
 
-
-struct kdNode * kdTree::makeTree(struct kdNode * t, int len, int i) {
-    struct kdNode * n;
-    struct kdNode * start;
-    n = findMedian(t, t + len, i);
-    if (n) {
-        i = (i + 1) % DIMENSION;
-        n->left = makeTree(t, n - t, i);
-        n->right = makeTree(n + 1, t + len - (n + 1), i);
-    }
-
-    return n;
-}
-
 struct kdNode * kdTree::buildTree(struct kdNode * t, int len, int i) {
     struct kdNode * x, * root, *xy, *currentRoot;
     std::stack < kdNode * > s;

@@ -36,7 +36,6 @@ class kdTree {
   __device__ __host__ kdNode getKdRoot();
   std::vector<int> rangeSearch(kdNode *root,
                                        double searchPoint[DIMENSION]);
-  void insert(struct kdNode * t);
 };
 
 void inOrderNoRecursion(struct kdNode *curr);
