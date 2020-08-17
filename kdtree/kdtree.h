@@ -25,9 +25,8 @@ struct __align__(8) kdNode{
 };
 
 class kdTree {
-private:
-  kdNode *kdRoot;
  public:
+ struct kdNode *kdRoot;
   __device__ __host__ kdTree();
   __device__ __host__ virtual ~kdTree();
   __device__ __host__ inline  void swap(kdNode *x, kdNode *y);
@@ -37,6 +36,7 @@ private:
   __device__ __host__ kdNode getKdRoot();
   std::vector<int> rangeSearch(kdNode *root,
                                        double searchPoint[DIMENSION]);
+  void insert(struct kdNode * t);
 };
 
 void inOrderNoRecursion(struct kdNode *curr);
