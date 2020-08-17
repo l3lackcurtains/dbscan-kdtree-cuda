@@ -138,7 +138,6 @@ struct kdNode * kdTree::buildTree(struct kdNode * t, int len, int i) {
         end = last_mid;
         start = last_start;
 
-        printf("MID: %d\n", x->id);
         i = (i + 1) % DIMENSION;
         x = findMedian(t + start, t + end, i);
         
