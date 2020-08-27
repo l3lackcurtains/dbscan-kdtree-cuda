@@ -10,11 +10,14 @@
 #include <iostream>
 #include <vector>
 
-
+#include <thrust/device_vector.h>
+#include <thrust/execution_policy.h>
+#include <thrust/host_vector.h>
+#include <thrust/sort.h>
 #include<bits/stdc++.h>
 
 
-#define DATASET_COUNT 100
+#define DATASET_COUNT 10
 #define DIMENSION 2
 #define EPS 1.5
 
@@ -36,9 +39,12 @@ class kdTree {
   __device__ __host__ kdNode getKdRoot();
   std::vector<int> rangeSearch(kdNode *root,
                                        double searchPoint[DIMENSION]);
+  struct kdNode *insertRec(struct kdNode *root, struct kdNode * item, unsigned depth);
 };
 
 void inOrderNoRecursion(struct kdNode *curr);
+void preOrderNoRecursion(struct kdNode *curr);
+std::vector<int> inorderToVector(struct kdNode *curr);
 int ImportDataset(char const *fname, double *dataset);
 
 #define gpuErrchk(ans) \
@@ -51,3 +57,15 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
     if (abort) exit(code);
   }
 }
+
+struct TupleComp {
+  __host__ __device__ bool operator()(const thrust::tuple<double, double> &t1,
+                                      const thrust::tuple<double, double> &t2) {
+    if (t1.get<0>() < t2.get<0>()) return true;
+    if (t1.get<0>() > t2.get<0>()) return false;
+    return t1.get<1>() < t2.get<1>();
+  }
+};
+
+
+void datasetPreprocessing(double *h_dataset);

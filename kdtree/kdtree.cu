@@ -24,6 +24,8 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    datasetPreprocessing(importedDataset);
+
     // Check if the data parsed is correct
     for (int i = 0; i < 4; i++)
     {
@@ -33,6 +35,17 @@ int main(int argc, char **argv)
     struct kdNode *wp =
         (struct kdNode *)malloc(sizeof(struct kdNode) * DATASET_COUNT);
 
+    int blocks = 5;
+    int divided = DATASET_COUNT / blocks + 1;
+
+    struct kdNode **wp2 =
+        (struct kdNode **)malloc(sizeof(struct kdNode*) * blocks);
+    for(int j = 0; j < blocks; j++) {
+        wp2[j] =
+        (struct kdNode *)malloc(sizeof(struct kdNode) * divided);
+    }
+    
+
     for (int i = 0; i < DATASET_COUNT; i++)
     {
         wp[i].id = i;
@@ -41,72 +54,183 @@ int main(int argc, char **argv)
             wp[i].x[j] = importedDataset[i * DIMENSION + j];
         }
     }
+    
+    printf("SORTED DATASET\n");
+    for (int i = 0; i < DATASET_COUNT; i++)
+    {
+        printf("%d ",wp[i].id);
+        
+    }
+    printf("\n");
 
-    struct kdNode *root, *root2;
+    for(int i = 0; i < blocks; i++) {
+        for(int j = 0; j < divided; j++) {
+            if(i*divided + j < DATASET_COUNT) {
+                wp2[i][j].id = wp[i*divided + j].id;
+                for (int k = 0; k < DIMENSION; k++)
+                {
+                    wp2[i][j].x[k] = wp[i*divided + j].x[k];
+                }
+            } else {
+                wp2[i][j].id = -1;
+            }
+        }
+    }
+
+    printf("DIVIDED DATASET\n");
+    for (int i = 0; i < blocks; i++)
+    {   
+        for(int j = 0; j < divided; j++) {
+            printf("%d ",wp2[i][j].id);
+        }
+        printf("\n");
+        
+    }
+    printf("\n");
+
+    struct kdNode *root =
+        (struct kdNode *)malloc(sizeof(struct kdNode) * blocks);
+    
+    struct kdNode *root2 =
+        (struct kdNode *)malloc(sizeof(struct kdNode) * blocks);
 
     double searchPoint[DIMENSION] = {
         131.229813,
-        43.925762};
+        43.925762
+    };
 
     kdTree kd = kdTree();
 
-    root = kd.buildTree(wp, DATASET_COUNT, 0);
-    inOrderNoRecursion(root);
-    
-    root2 = kd.makeTree(wp, DATASET_COUNT, 0);
-    // inOrderNoRecursion(root2);
+    for(int i = 0; i < blocks; i++ ) {
+        int len = 0;
+        for(int j = 0; j < divided; j++) {
+            if(wp2[i][j].id != -1) {
+                len++;
+            }
+        }
+        if(len > 0) {
+            root[i] = *kd.buildTree(wp2[i], len, 0);
+        } else {
+            root[i].id = -1;
+        }
+    }
 
-    std::vector<int> points = kd.rangeSearch(root, searchPoint);
+    int len = 0;
+    for(int i = 0; i < blocks; i++ ) {
+        if(root[i].id != -1) len++;
+    }
+
+    for(int i = 0; i < len; i++ ) {
+        root2[i] = root[i];
+    }
+
+    printf("TREE ROOTS\n");
+    for (int i = 0; i < len; i++)
+    {
+        printf("%d ",root[i].id);
+        
+    }
+    printf("\n");
+
+    std::vector<int> sec;
+    printf("Len: %d\n", len);
+    int mid = len/2;
+    if(len %2 == 0) mid = mid - 1;
+    sec.push_back(root2[mid].id);
+
+    for(int i = mid - 1; i >= 0; i--) {
+        sec.push_back(root2[i].id);
+    }
+
+    for(int i = mid + 1; i < len; i++) {
+        sec.push_back(root2[i].id);
+    }
+
+    for(int i = 0; i < sec.size(); i++) {
+        printf("sec: %d\n", sec[i]);
+    }
+    
+
+    struct kdNode *mainRoot = NULL;
+    
+    for(int k = 0; k < sec.size(); k++) {
+        for(int i = 0; i < len; i++) {
+            if(root[i].id == sec[k]) {
+                struct kdNode *item = &root[i];
+                mainRoot = kd.insertRec(mainRoot, item, 0);
+                break;
+            }
+        }
+    }
+    
+    printf("\n========================\n");
+    inOrderNoRecursion(mainRoot);
+    preOrderNoRecursion(mainRoot);
+    printf("========================\n");
+    std::vector<int> points = kd.rangeSearch(mainRoot, searchPoint);
+    for (int i = 0; i < points.size(); i++)
+    {
+        printf("%d ", points[i]);
+    }
+    printf("\n");
+
+    printf("MAIN::\n");
+    mainRoot = kd.makeTree(wp, DATASET_COUNT, 0);
+    printf("\n========================\n");
+    inOrderNoRecursion(mainRoot);
+    preOrderNoRecursion(mainRoot);
+    printf("========================\n");
+    points = kd.rangeSearch(mainRoot, searchPoint);
+    printf("\n");
+    
 
     for (int i = 0; i < points.size(); i++)
     {
         printf("%d ", points[i]);
     }
-
     printf("\n");
-
     return 0;
 }
 
 kdTree::kdTree() {}
 kdTree::~kdTree() {}
 
+struct kdNode *kdTree::insertRec(struct kdNode *root, struct kdNode *item, unsigned depth) 
+{ 
+    if (root == NULL) 
+       return item;
+  
+    unsigned cd = depth % DIMENSION;
 
-void kdTree::insert(struct kdNode * t) {
-    if (kdRoot == NULL) {
-        kdRoot = t;
-        return;
+    if (item->x[cd] < (root->x[cd]))
+        root->left  = insertRec(root->left, item, depth + 1); 
+    else
+        root->right = insertRec(root->right, item, depth + 1); 
+  
+    return root; 
+} 
+
+
+struct kdNode * kdTree::makeTree(struct kdNode * t, int len, int i) {
+    struct kdNode * n;
+    n = findMedian(t, t + len, i);
+    if (n) {
+        i = (i + 1) % DIMENSION;
+        n->left = makeTree(t, n - t, i);
+        n->right = makeTree(n + 1, t + len - (n + 1), i);
     }
-    int currDim = 0;
-    struct kdNode * currRoot = kdRoot;
-    while (true) {
-        if (t->x[currDim] < currRoot->x[currDim]) {
-            if (currRoot->id == t->id) {
-                return;
-            }
-            if (currRoot->left == NULL) {
-                currRoot->left = t;
-                break;
-            } else
-                currRoot = currRoot->left;
-        } else {
-            if (currRoot->right == NULL) {
-                currRoot->right = t;
-                break;
-            } else
-                currRoot = currRoot->right;
-        }
-        currDim = (currDim + 1) % DIMENSION;
-    }
-    return;
+
+    return n;
 }
 
 struct kdNode * kdTree::buildTree(struct kdNode * t, int len, int i) {
+   
     struct kdNode * x, * root, *xy, *currentRoot;
     std::stack < kdNode * > s;
 
     int start = 0;
     int end = len;
+    
 
     x = findMedian(t + start, t + end, i);
     int last_mid = x - t;
@@ -305,6 +429,97 @@ void inOrderNoRecursion(struct kdNode *curr)
     }
     printf("\n");
 }
+
+void preOrderNoRecursion(struct kdNode *curr)
+{
+    if (curr == NULL) 
+       return; 
+    std::stack<struct kdNode *> s; 
+    s.push(curr); 
+  
+    while (s.empty() == false) 
+    { 
+        struct kdNode *node = s.top(); 
+        printf("%d ", node->id);
+        s.pop(); 
+  
+        if (node->right) 
+            s.push(node->right); 
+        if (node->left) 
+            s.push(node->left); 
+    }
+
+    printf("\n");
+}
+
+std::vector<int> inorderToVector(struct kdNode *curr)
+{
+    
+    std::stack<struct kdNode *> s;
+    std::vector<int> d = {};
+
+    if (curr == NULL) 
+       return d; 
+    s.push(curr); 
+    while (s.empty() == false) 
+    { 
+        struct kdNode *node = s.top(); 
+        d.push_back(node->id);
+        s.pop(); 
+        if (node->right) 
+            s.push(node->right); 
+        if (node->left) 
+            s.push(node->left); 
+    }
+    return d;
+}
+
+void datasetPreprocessing(double *h_dataset) {
+
+  double dataset_tuple_x[DATASET_COUNT];
+  double dataset_tuple_y[DATASET_COUNT];
+  for (int i = 0; i < DATASET_COUNT; i++) {
+    dataset_tuple_x[i] = h_dataset[i * DIMENSION];
+    dataset_tuple_y[i] = h_dataset[i * DIMENSION + 1];
+  }
+
+  double *d_dataset_tuple1;
+  gpuErrchk(cudaMalloc(&d_dataset_tuple1, DATASET_COUNT * sizeof(double)));
+
+  double *d_dataset_tuple2;
+  gpuErrchk(cudaMalloc(&d_dataset_tuple2, DATASET_COUNT * sizeof(double)));
+
+  gpuErrchk(cudaMemcpy(d_dataset_tuple1, dataset_tuple_x,
+                       DATASET_COUNT * sizeof(double), cudaMemcpyHostToDevice));
+  gpuErrchk(cudaMemcpy(d_dataset_tuple2, dataset_tuple_y,
+                       DATASET_COUNT * sizeof(double), cudaMemcpyHostToDevice));
+
+  thrust::device_ptr<double> dev_ptr_vector1 =
+      thrust::device_pointer_cast(d_dataset_tuple1);
+  thrust::device_ptr<double> dev_ptr_vector2 =
+      thrust::device_pointer_cast(d_dataset_tuple2);
+
+  auto begin = thrust::make_zip_iterator(
+      thrust::make_tuple(dev_ptr_vector1, dev_ptr_vector2));
+  auto end = thrust::make_zip_iterator(thrust::make_tuple(
+      dev_ptr_vector1 + DATASET_COUNT, dev_ptr_vector2 + DATASET_COUNT));
+
+  thrust::sort(begin, end, TupleComp());
+
+  double *h_vector1_output = (double *)malloc(DATASET_COUNT * sizeof(double));
+  double *h_vector2_output = (double *)malloc(DATASET_COUNT * sizeof(double));
+
+  gpuErrchk(cudaMemcpy(h_vector1_output, d_dataset_tuple1,
+                       DATASET_COUNT * sizeof(double), cudaMemcpyDeviceToHost));
+  gpuErrchk(cudaMemcpy(h_vector2_output, d_dataset_tuple2,
+                       DATASET_COUNT * sizeof(double), cudaMemcpyDeviceToHost));
+
+  for (int i = 0; i < DATASET_COUNT; i++) {
+    h_dataset[i * DIMENSION] = h_vector1_output[i];
+    h_dataset[i * DIMENSION + 1] = h_vector2_output[i];
+  }
+}
+
 
 int ImportDataset(char const *fname, double *dataset)
 {
