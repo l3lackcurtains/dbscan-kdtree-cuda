@@ -376,17 +376,14 @@ std::vector<int> kdTree::rangeSearch(struct kdNode *root,
     {
         if (root->left == NULL)
         {
-            if (root->x[0] >= lowerPoint[0] && root->x[0] <= upperPoint[0] &&
-                root->x[1] >= lowerPoint[1] && root->x[1] <= upperPoint[1])
-            {
-                points.push_back(root->id);
-            }
+            points.push_back(root->id);
             root = root->right;
         }
         else
         {
             struct kdNode *current = root->left;
-            while (current->right && current->right != root)
+            while (current->right && current->right != root && current->x[0] >= lowerPoint[0] && current->x[0] <= upperPoint[0] &&
+                    current->x[1] >= lowerPoint[1] && current->x[1] <= upperPoint[1])
                 current = current->right;
             if (current->right == root)
             {

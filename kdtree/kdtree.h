@@ -17,7 +17,7 @@
 #include<bits/stdc++.h>
 
 
-#define DATASET_COUNT 10
+#define DATASET_COUNT 100
 #define DIMENSION 2
 #define EPS 1.5
 
