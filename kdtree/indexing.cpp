@@ -26,10 +26,9 @@ struct IndexStructure {
 
 int ImportDataset(char const *fname, double *dataset);
 
-void indexConstruction(double * dataset, struct IndexStructure *indexRoot);
+void indexConstruction(double *dataset, struct IndexStructure *indexRoot);
 
 void insertData(int id, double data[DIMENSION], struct IndexStructure *indexRoot);
-
 
 vector<int> searchPoints(double data[DIMENSION], struct IndexStructure *indexRoot);
 
@@ -56,7 +55,7 @@ int main(int argc, char **argv) {
 
     struct IndexStructure *indexRoot = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
 
-    indexConstruction(importedDataset, indexRoot);    
+    indexConstruction(importedDataset, indexRoot);
 
     int searchPointId = 37;
     double data[DIMENSION];
@@ -66,7 +65,7 @@ int main(int argc, char **argv) {
     vector<int> results = searchPoints(data, indexRoot);
 
     printf("Searched Points:\n");
-    for(int i = 0; i < results.size(); i++) {
+    for (int i = 0; i < results.size(); i++) {
         printf("%d ", results[i]);
     }
     printf("\n");
@@ -74,7 +73,7 @@ int main(int argc, char **argv) {
     return 0;
 }
 
-void indexConstruction(double * dataset, struct IndexStructure *indexRoot) {
+void indexConstruction(double *dataset, struct IndexStructure *indexRoot) {
     double maxPoints[DIMENSION];
     double minPoints[DIMENSION];
 
@@ -107,7 +106,6 @@ void indexConstruction(double * dataset, struct IndexStructure *indexRoot) {
         printf("Range Advanced: %f\n", advanceRangeBy[j]);
     }
 
-   
     stack<struct IndexStructure *> indexStacked;
     indexStacked.push(indexRoot);
 
@@ -150,8 +148,6 @@ void indexConstruction(double * dataset, struct IndexStructure *indexRoot) {
     }
 }
 
-
-
 vector<int> searchPoints(double data[DIMENSION], struct IndexStructure *indexRoot) {
     struct IndexStructure *currentIndex = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
 
@@ -187,8 +183,6 @@ vector<int> searchPoints(double data[DIMENSION], struct IndexStructure *indexRoo
 }
 
 void insertData(int id, double data[DIMENSION], struct IndexStructure *indexRoot) {
-
-    
     struct IndexStructure *currentIndex = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
 
     struct dataNode *selectedDataNode = (struct dataNode *)malloc(sizeof(struct dataNode));
@@ -214,7 +208,6 @@ void insertData(int id, double data[DIMENSION], struct IndexStructure *indexRoot
         }
     }
     if (selectedDataNode == NULL) {
-        
         selectedDataNode->id = id;
         struct dataNode *childRoot = (struct dataNode *)malloc(sizeof(struct dataNode));
         selectedDataNode->child = childRoot;
@@ -225,10 +218,7 @@ void insertData(int id, double data[DIMENSION], struct IndexStructure *indexRoot
         selectedDataNode->id = id;
         struct dataNode *childRoot = (struct dataNode *)malloc(sizeof(struct dataNode));
         selectedDataNode->child = childRoot;
-        
     }
-
-    
 }
 
 int ImportDataset(char const *fname, double *dataset) {
