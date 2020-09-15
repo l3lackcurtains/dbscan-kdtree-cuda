@@ -29,7 +29,7 @@ struct IndexStructure {
 
 int ImportDataset(char const *fname, double *dataset);
 
-void indexConstruction(double *dataset, struct IndexStructure *indexRoot, int * partition,  double minPoints[DIMENSION]);
+void indexConstruction(double *dataset, struct IndexStructure *indexRoot, int *partition, double minPoints[DIMENSION]);
 
 void insertData(int id, double *data, struct IndexStructure *indexRoot, int *partition);
 
@@ -90,21 +90,12 @@ int main(int argc, char **argv) {
 
     indexConstruction(importedDataset, indexRoot, partition, minPoints);
 
-
-    int searchPointId = 12;
-    double * data;
-    data = (double *) malloc(sizeof(double) * DIMENSION);
+    int searchPointId = 100;
+    double *data;
+    data = (double *)malloc(sizeof(double) * DIMENSION);
     for (int j = 0; j < DIMENSION; j++) {
         data[j] = importedDataset[searchPointId * DIMENSION + j];
     }
-
-    double ** AllRangedata;
-    AllRangedata = (double **) malloc(sizeof(double*) * 6);
-
-    for(int i = 0; i < 6; i++) {
-        AllRangedata[i] = (double *) malloc(sizeof(double) * DIMENSION);
-    }
-
     vector<int> results = searchPoints(data, indexRoot, partition);
 
     printf("Searched Points:\n");
@@ -116,9 +107,7 @@ int main(int argc, char **argv) {
     return 0;
 }
 
-void indexConstruction(double *dataset, struct IndexStructure *indexRoot, int * partition,  double minPoints[DIMENSION]) {
-
-
+void indexConstruction(double *dataset, struct IndexStructure *indexRoot, int *partition, double minPoints[DIMENSION]) {
     stack<struct IndexStructure *> indexStacked;
     indexStacked.push(indexRoot);
 
@@ -143,7 +132,7 @@ void indexConstruction(double *dataset, struct IndexStructure *indexRoot, int * 
                 currentBucket->dataRoot->id = -1;
 
                 currentIndex->buckets[k] = currentBucket;
-                if(j < DIMENSION - 1) {
+                if (j < DIMENSION - 1) {
                     childStacked.push(currentIndex->buckets[k]);
                 }
             }
@@ -182,7 +171,7 @@ void insertData(int id, double *data, struct IndexStructure *indexRoot, int *par
             float comparingData = (float)data[dimension];
             float leftRange = (float)currentBucket->range[0];
             float rightRange = (float)currentBucket->range[1];
-            
+
             if (comparingData >= leftRange && comparingData <= rightRange) {
                 if (dimension == DIMENSION - 1) {
                     selectedDataNode = currentBucket->dataRoot;
@@ -215,10 +204,18 @@ vector<int> searchPoints(double *data, struct IndexStructure *indexRoot, int *pa
 
     struct dataNode *selectedDataNode = (struct dataNode *)malloc(sizeof(struct dataNode));
 
-    currentIndex = indexRoot;
+    vector<struct dataNode *> selectedDataNodes = {};
+
     bool found = false;
 
-    while (!found) {
+    vector<struct IndexStructure *> currentIndexes = {};
+    currentIndexes.push_back(indexRoot);
+
+    while (!currentIndexes.empty()) {
+
+        currentIndex = currentIndexes.back();
+        currentIndexes.pop_back();
+
         int dimension = currentIndex->level;
         for (int k = 0; k < partition[dimension]; k++) {
             struct IndexStructure *currentBucket = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
@@ -227,24 +224,39 @@ vector<int> searchPoints(double *data, struct IndexStructure *indexRoot, int *pa
             float comparingData = (float)data[dimension];
             float leftRange = (float)currentBucket->range[0];
             float rightRange = (float)currentBucket->range[1];
-            
+
             if (comparingData >= leftRange && comparingData <= rightRange) {
                 if (dimension == DIMENSION - 1) {
-                    selectedDataNode = currentBucket->dataRoot;
-                    found = true;
+                    selectedDataNodes.push_back(currentBucket->dataRoot);
+                    if (k > 0) {
+                        selectedDataNodes.push_back(currentIndex->buckets[k - 1]->dataRoot);
+                    }
+                    if (k < partition[dimension] - 1) {
+                        selectedDataNodes.push_back(currentIndex->buckets[k + 1]->dataRoot);
+                    }
                     break;
                 }
-                currentIndex = currentBucket;
+                currentIndexes.push_back(currentBucket);
+                if (k > 0) {
+                    currentIndexes.push_back(currentIndex->buckets[k - 1]);
+                }
+                if (k < partition[dimension] - 1) {
+                    currentIndexes.push_back(currentIndex->buckets[k + 1]);
+                }
                 break;
             }
         }
     }
 
     vector<int> points = {};
-    while (selectedDataNode->id != -1) {
-        points.push_back(selectedDataNode->id);
-        selectedDataNode = selectedDataNode->child;
+    for (int x = 0; x < selectedDataNodes.size(); x++) {
+        selectedDataNode = selectedDataNodes[x];
+        while (selectedDataNode->id != -1) {
+            points.push_back(selectedDataNode->id);
+            selectedDataNode = selectedDataNode->child;
+        }
     }
+
     return points;
 }
 
