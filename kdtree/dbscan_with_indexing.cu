@@ -12,11 +12,13 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <bits/stdc++.h>
 
 using namespace std;
 
-// Number of data in dataset to use
+#define PARTITION 240
 
+// Number of data in dataset to use
 #define DATASET_COUNT 100000
 // #define DATASET_COUNT 1864620
 
@@ -89,12 +91,30 @@ __device__ void MarkAsCandidate(int neighborID, int chainID, int *cluster,
                                 int *seedList, int *seedLength,
 
                                 int *collisionMatrix, int *extraCollision);
+/**
+**************************************************************************
+//////////////////////////////////////////////////////////////////////////
+* Indexing data structure and functions
+//////////////////////////////////////////////////////////////////////////
+**/
 
-void indexConstruction(double * dataset, struct IndexStructure *indexRoot);
+struct dataNode {
+    int id;
+    struct dataNode *child;
+};
 
-void insertData(int id, double data[DIMENSION], struct IndexStructure *indexRoot);
+struct IndexStructure {
+    int level;
+    double range[2];
+    struct IndexStructure *buckets[PARTITION];
+    struct dataNode *dataRoot;
+};
 
-vector<int> searchPoints(double data[DIMENSION], struct IndexStructure *indexRoot);
+void indexConstruction(double *dataset, struct IndexStructure *indexRoot, int *partition, double minPoints[DIMENSION]);
+
+void insertData(int id, double *data, struct IndexStructure *indexRoot, int *partition);
+
+vector<int> searchPoints(double *data, struct IndexStructure *indexRoot, int *partition);
 
 /**
 **************************************************************************
@@ -203,9 +223,41 @@ int main(int argc, char **argv) {
    **************************************************************************
    */
   
-  struct IndexStructure *indexRoot = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
+   struct IndexStructure *indexRoot = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
 
-  indexConstruction(importedDataset, indexRoot);
+    double maxPoints[DIMENSION];
+    double minPoints[DIMENSION];
+
+    for (int j = 0; j < DIMENSION; j++) {
+        maxPoints[j] = 0;
+        minPoints[j] = 999999999;
+    }
+
+    for (int i = 0; i < DATASET_COUNT; i++) {
+        for (int j = 0; j < DIMENSION; j++) {
+            if (importedDataset[i * DIMENSION + j] > maxPoints[j]) {
+                maxPoints[j] = importedDataset[i * DIMENSION + j];
+            }
+            if (importedDataset[i * DIMENSION + j] < minPoints[j]) {
+                minPoints[j] = importedDataset[i * DIMENSION + j];
+            }
+        }
+    }
+
+    int *partition = (int *)malloc(sizeof(int) * DIMENSION);
+
+    for (int i = 0; i < DIMENSION; i++) {
+        partition[i] = 0;
+        double curr = minPoints[i];
+        while (curr < maxPoints[i]) {
+            partition[i]++;
+            curr += EPS;
+        }
+    }
+
+    cout<<partition[0]<<" "<<partition[1]<<endl;
+
+    indexConstruction(importedDataset, indexRoot, partition, minPoints);
 
   /**
    **************************************************************************
@@ -266,7 +318,7 @@ int main(int argc, char **argv) {
       for (int j = 0; j < DIMENSION; j++) {
         searchPoint[j] = importedDataset[seedPointId * DIMENSION + j];
       }
-      pointsList[i] = searchPoints(searchPoint, indexRoot);
+      pointsList[i] = searchPoints(searchPoint, indexRoot, partition);
     }
 
     int maxSize = 0;
@@ -275,8 +327,6 @@ int main(int argc, char **argv) {
         maxSize = pointsList[i].size();
       }
     }
-
-    32 * 200
     
     gpuErrchk(
         cudaMemcpy(d_maxSize, &maxSize, sizeof(int), cudaMemcpyHostToDevice));
@@ -930,39 +980,7 @@ __device__ void MarkAsCandidate(int neighborID, int chainID, int *cluster,
 **************************************************************************
 */
 
-void indexConstruction(double *dataset, struct IndexStructure *indexRoot) {
-    double maxPoints[DIMENSION];
-    double minPoints[DIMENSION];
-
-    for (int j = 0; j < DIMENSION; j++) {
-        maxPoints[j] = 0;
-        minPoints[j] = 999999999;
-    }
-
-    for (int i = 0; i < DATASET_COUNT; i++) {
-        for (int j = 0; j < DIMENSION; j++) {
-            if (dataset[i * DIMENSION + j] > maxPoints[j]) {
-                maxPoints[j] = dataset[i * DIMENSION + j];
-            }
-            if (dataset[i * DIMENSION + j] < minPoints[j]) {
-                minPoints[j] = dataset[i * DIMENSION + j];
-            }
-        }
-    }
-
-    double advanceRangeBy[DIMENSION];
-
-    for (int j = 0; j < DIMENSION; j++) {
-        advanceRangeBy[j] = (maxPoints[j] - minPoints[j]) / PARTITION;
-    }
-
-    for (int j = 0; j < DIMENSION; j++) {
-        printf("DIM: %d\n", j);
-        printf("Max: %f\n", maxPoints[j]);
-        printf("Min: %f\n", minPoints[j]);
-        printf("Range Advanced: %f\n", advanceRangeBy[j]);
-    }
-
+void indexConstruction(double *dataset, struct IndexStructure *indexRoot, int *partition, double minPoints[DIMENSION]) {
     stack<struct IndexStructure *> indexStacked;
     indexStacked.push(indexRoot);
 
@@ -973,23 +991,26 @@ void indexConstruction(double *dataset, struct IndexStructure *indexRoot) {
             struct IndexStructure *currentIndex = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
             currentIndex = indexStacked.top();
             indexStacked.pop();
+            currentIndex->level = j;
 
-            double rightPoint = maxPoints[j];
-            for (int k = PARTITION - 1; k >= 0; k--) {
+            double rightPoint = minPoints[j] + partition[j] * EPS;
+
+            for (int k = partition[j] - 1; k >= 0; k--) {
                 struct IndexStructure *currentBucket = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
 
                 currentBucket->range[1] = rightPoint;
-                rightPoint = rightPoint - advanceRangeBy[j];
+                rightPoint = rightPoint - EPS;
                 currentBucket->range[0] = rightPoint;
-                currentBucket->level = j;
-                struct dataNode *dataRoot = (struct dataNode *)malloc(sizeof(struct dataNode));
-                currentBucket->dataRoot = dataRoot;
-                currentBucket->dataRoot->child = NULL;
+                currentBucket->dataRoot = (struct dataNode *)malloc(sizeof(struct dataNode));
+                currentBucket->dataRoot->id = -1;
 
                 currentIndex->buckets[k] = currentBucket;
-                childStacked.push(currentIndex->buckets[k]);
+                if (j < DIMENSION - 1) {
+                    childStacked.push(currentIndex->buckets[k]);
+                }
             }
         }
+
         while (childStacked.size() > 0) {
             indexStacked.push(childStacked.top());
             childStacked.pop();
@@ -997,64 +1018,35 @@ void indexConstruction(double *dataset, struct IndexStructure *indexRoot) {
     }
 
     for (int i = 0; i < DATASET_COUNT; i++) {
-        double data[DIMENSION];
+        double *data =
+            (double *)malloc(sizeof(double) * DIMENSION);
         for (int j = 0; j < DIMENSION; j++) {
             data[j] = dataset[i * DIMENSION + j];
         }
-        insertData(i, data, indexRoot);
+        insertData(i, data, indexRoot, partition);
     }
 }
 
-vector<int> searchPoints(double data[DIMENSION], struct IndexStructure *indexRoot) {
+void insertData(int id, double *data, struct IndexStructure *indexRoot, int *partition) {
     struct IndexStructure *currentIndex = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
 
     struct dataNode *selectedDataNode = (struct dataNode *)malloc(sizeof(struct dataNode));
 
     currentIndex = indexRoot;
     bool found = false;
+
     while (!found) {
-        for (int k = 0; k < PARTITION; k++) {
+        int dimension = currentIndex->level;
+        for (int k = 0; k < partition[dimension]; k++) {
             struct IndexStructure *currentBucket = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
             currentBucket = currentIndex->buckets[k];
 
-            float comparingData = data[currentBucket->level];
-            float leftRange = currentBucket->range[0];
-            float rightRange = currentBucket->range[1];
-            if (comparingData >= leftRange && comparingData <= rightRange) {
-                if (currentBucket->level == DIMENSION - 1) {
-                    selectedDataNode = currentBucket->dataRoot;
-                    found = true;
-                    break;
-                }
-                currentIndex = currentBucket;
-                break;
-            }
-        }
-    }
-    vector<int> points = {};
-    while (selectedDataNode->child != NULL) {
-        points.push_back(selectedDataNode->id);
-        selectedDataNode = selectedDataNode->child;
-    }
-    return points;
-}
-
-void insertData(int id, double data[DIMENSION], struct IndexStructure *indexRoot) {
-    struct IndexStructure *currentIndex = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
-
-    struct dataNode *selectedDataNode = (struct dataNode *)malloc(sizeof(struct dataNode));
-
-    currentIndex = indexRoot;
-    bool found = false;
-    while (!found) {
-        for (int k = 0; k < PARTITION; k++) {
-            struct IndexStructure *currentBucket = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
-            currentBucket = currentIndex->buckets[k];
-            float comparingData = (float)data[currentBucket->level];
+            float comparingData = (float)data[dimension];
             float leftRange = (float)currentBucket->range[0];
             float rightRange = (float)currentBucket->range[1];
+
             if (comparingData >= leftRange && comparingData <= rightRange) {
-                if (currentBucket->level == DIMENSION - 1) {
+                if (dimension == DIMENSION - 1) {
                     selectedDataNode = currentBucket->dataRoot;
                     found = true;
                     break;
@@ -1064,18 +1056,79 @@ void insertData(int id, double data[DIMENSION], struct IndexStructure *indexRoot
             }
         }
     }
-    if (selectedDataNode == NULL) {
+
+    if (selectedDataNode->id == -1) {
         selectedDataNode->id = id;
-        struct dataNode *childRoot = (struct dataNode *)malloc(sizeof(struct dataNode));
-        selectedDataNode->child = childRoot;
+        selectedDataNode->child = (struct dataNode *)malloc(sizeof(struct dataNode));
+        selectedDataNode->child->id = -1;
     } else {
-        while (selectedDataNode->child != NULL) {
+        selectedDataNode = selectedDataNode->child;
+        while (selectedDataNode->id != -1) {
             selectedDataNode = selectedDataNode->child;
         }
         selectedDataNode->id = id;
-        struct dataNode *childRoot = (struct dataNode *)malloc(sizeof(struct dataNode));
-        selectedDataNode->child = childRoot;
+        selectedDataNode->child = (struct dataNode *)malloc(sizeof(struct dataNode));
+        selectedDataNode->child->id = -1;
     }
+}
+
+vector<int> searchPoints(double *data, struct IndexStructure *indexRoot, int *partition) {
+    struct IndexStructure *currentIndex = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
+
+    struct dataNode *selectedDataNode = (struct dataNode *)malloc(sizeof(struct dataNode));
+
+    vector<struct dataNode *> selectedDataNodes = {};
+
+    vector<struct IndexStructure *> currentIndexes = {};
+    currentIndexes.push_back(indexRoot);
+
+    while (!currentIndexes.empty()) {
+
+        currentIndex = currentIndexes.back();
+        currentIndexes.pop_back();
+
+        int dimension = currentIndex->level;
+        for (int k = 0; k < partition[dimension]; k++) {
+            struct IndexStructure *currentBucket = (struct IndexStructure *)malloc(sizeof(struct IndexStructure));
+            currentBucket = currentIndex->buckets[k];
+
+            float comparingData = (float)data[dimension];
+            float leftRange = (float)currentBucket->range[0];
+            float rightRange = (float)currentBucket->range[1];
+
+            if (comparingData >= leftRange && comparingData <= rightRange) {
+                if (dimension == DIMENSION - 1) {
+                    selectedDataNodes.push_back(currentBucket->dataRoot);
+                    if (k > 0) {
+                        selectedDataNodes.push_back(currentIndex->buckets[k - 1]->dataRoot);
+                    }
+                    if (k < partition[dimension] - 1) {
+                        selectedDataNodes.push_back(currentIndex->buckets[k + 1]->dataRoot);
+                    }
+                    break;
+                }
+                currentIndexes.push_back(currentBucket);
+                if (k > 0) {
+                    currentIndexes.push_back(currentIndex->buckets[k - 1]);
+                }
+                if (k < partition[dimension] - 1) {
+                    currentIndexes.push_back(currentIndex->buckets[k + 1]);
+                }
+                break;
+            }
+        }
+    }
+
+    vector<int> points = {};
+    for (int x = 0; x < selectedDataNodes.size(); x++) {
+        selectedDataNode = selectedDataNodes[x];
+        while (selectedDataNode->id != -1) {
+            points.push_back(selectedDataNode->id);
+            selectedDataNode = selectedDataNode->child;
+        }
+    }
+
+    return points;
 }
 
 /**
