@@ -10,6 +10,9 @@
 #define DATASET_COUNT 1000
 #define DIMENSION 2
 #define PARTITION 10
+
+#define EPSILON 1.5
+
 using namespace std;
 
 struct dataNode {
