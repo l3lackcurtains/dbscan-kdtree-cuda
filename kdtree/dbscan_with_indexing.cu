@@ -32,10 +32,10 @@ using namespace std;
 #define EXTRA_COLLISION_SIZE 128
 
 // Number of blocks
-#define THREAD_BLOCKS 128
+#define THREAD_BLOCKS 64
 
 // Number of threads per block
-#define THREAD_COUNT 1024
+#define THREAD_COUNT 128
 
 // Status of points that are not clusterized
 #define UNPROCESSED -1
